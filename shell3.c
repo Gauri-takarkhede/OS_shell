@@ -13,6 +13,7 @@ char *currentPath;
 char* PATH  = "/usr/bin:/bin:/sbin";
 char cwd[256];
            
+pid_t running_pid = -1;
 
 #define MAX_ARG 10
 #define HISTORY_SIZE 10
@@ -38,7 +39,18 @@ void print_history() {
     }
 }
 
-
+void sigint_handler(int signum) {
+    if (running_pid != -1) {
+        kill(running_pid, SIGKILL); 
+        printf("\n");
+        //printf("\nProcess terminated.\n");
+        fflush(stdout); 
+    } else {
+        printf("\n"); 
+        printf("%s", prompt); 
+        fflush(stdout); 
+    }
+}
 void execute_command(char* command, char *argv[]){
        add_to_history(command);
 
@@ -96,7 +108,9 @@ void execute_command(char* command, char *argv[]){
          
        }
        else if(pid>0){
+            running_pid = pid; 
             wait(NULL);
+            running_pid = -1;
        }
        else{
              perror("Fork Failed");
@@ -128,7 +142,8 @@ void setPath(char *newPath) {
 }
 
 int main(){
-       int pid;
+       //int pid;
+       signal(SIGINT, sigint_handler);
       
        char command[128];
        char* arguments[10];
