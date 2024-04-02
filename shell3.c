@@ -52,15 +52,38 @@ void sigint_handler(int signum) {
     }
 }
 void execute_command(char* command, char *argv[]){
-       add_to_history(command);
+     printf("Adding command to history: %s\n", command);
+     add_to_history(command);
 
-       pid_t pid = fork();
        
-       if(pid==0){
+    int num_pipes = 0;
+    int pipe_positions[MAX_ARG];
+    pipe_positions[0] = -1;
+
+    
+    for (int i = 0; argv[i] != NULL; ++i) {
+        if (strcmp(argv[i], "|") == 0) {
+            pipe_positions[++num_pipes] = i;
+        }
+    }
+    pipe_positions[++num_pipes] = -1;
+
+ 
+    int pipes[MAX_ARG - 1][2];
+    for (int i = 0; i < num_pipes; ++i) {
+        if (pipe(pipes[i]) == -1) {
+            perror("pipe");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+        
+    /*   if(pid==0){
        
-              char *args[128];
-      	      char *token;
-              int i = 0;
+             char *args[128];
+             char *token;
+      	     
+             int i = 0;
              token = strtok(command, " ");
 		while (token != NULL) {
 		    if (strcmp(token, ">") == 0) {
@@ -91,20 +114,20 @@ void execute_command(char* command, char *argv[]){
 		    }
 		}
         
-            char * path2 = strdup(PATH);
-            char* directory = strtok(path2, ":");
-           
-            while(directory != NULL){
+               char * path2 = strdup(PATH);
+               char* directory = strtok(path2, ":");
+             
+               while(directory != NULL){
                    char arg[128];
                    snprintf(arg, sizeof(arg), "%s/%s", directory, argv[0]);
                    execv(arg, argv);
                    directory = strtok(NULL, ":");
-            }
-            if (execv(argv[0], argv) == -1) {
-           	fprintf(stderr, "Command not found: %s\n", argv[0]);
-            	free(path2);
-            	exit(EXIT_FAILURE);
-            }
+               }
+               if (execv(argv[0], argv) == -1) {
+           	   fprintf(stderr, "Command not found: %s\n", argv[0]);
+            	   free(path2);
+            	   exit(EXIT_FAILURE);
+               }
          
        }
        else if(pid>0){
@@ -115,7 +138,61 @@ void execute_command(char* command, char *argv[]){
        else{
              perror("Fork Failed");
              exit(EXIT_FAILURE);
-       }
+       }*/
+        pid_t pid;
+    int prev_pipe_read = -1;
+    for (int i = 0; i < num_pipes + 1; ++i) {
+        pid = fork();
+        if (pid == -1) {
+            perror("fork");
+            exit(EXIT_FAILURE);
+        } else if (pid == 0) { 
+            if (i > 0) { 
+                dup2(pipes[i - 1][0], STDIN_FILENO);
+                close(pipes[i - 1][0]);
+            }
+            if (i < num_pipes) { 
+                dup2(pipes[i][1], STDOUT_FILENO);
+                close(pipes[i][1]);
+            }
+
+            
+            for (int j = 0; j < num_pipes; ++j) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+
+            char *cmd[MAX_ARG];
+            int cmd_start = (i == 0) ? 0 : pipe_positions[i - 1] + 1;
+            int cmd_end = (i == num_pipes) ? MAX_ARG - 1 : pipe_positions[i];
+            for (int j = cmd_start; j < cmd_end; ++j) {
+                cmd[j - cmd_start] = argv[j];
+            }
+            cmd[cmd_end - cmd_start] = NULL;
+            execvp(cmd[0], cmd);
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        } else { 
+            running_pid = pid;
+            if (i > 0) { 
+                close(pipes[i - 1][0]);
+            }
+            //waitpid(pid, NULL, 0);
+            //running_pid = -1;
+            //exit(EXIT_SUCCESS);
+        }
+    }
+
+    for (int i = 0; i < num_pipes; ++i) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+
+
+    for (int i = 0; i < num_pipes + 1; ++i) {
+        wait(NULL);
+    }
+    running_pid = -1;
 }
 
 void changePrompt(char* prompt2){
